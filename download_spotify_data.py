@@ -3,6 +3,8 @@ from spotipy.oauth2 import SpotifyOAuth
 import pandas as pd
 import os
 import logging
+import time
+from requests.exceptions import ConnectionError
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,31 +33,37 @@ except Exception as e:
     logging.error(f"Unexpected error during authentication: {e}")
     raise
 
-def get_recently_played():
-    try:
-        # Fetch recently played tracks
-        results = sp.current_user_recently_played(limit=50)
-        tracks = results['items']
+def get_recently_played(retries=3, backoff_factor=0.3):
+    attempt = 0
+    while attempt < retries:
+        try:
+            # Fetch recently played tracks
+            results = sp.current_user_recently_played(limit=50)
+            tracks = results['items']
 
-        # Extracting data
-        data = []
-        for track in tracks:
-            track_info = track['track']
-            played_at = track['played_at']
-            data.append({
-                'Track Name': track_info['name'],
-                'Artist': track_info['artists'][0]['name'],
-                'Played At': played_at
-            })
+            # Extracting data
+            data = []
+            for track in tracks:
+                track_info = track['track']
+                played_at = track['played_at']
+                data.append({
+                    'Track Name': track_info['name'],
+                    'Artist': track_info['artists'][0]['name'],
+                    'Played At': played_at
+                })
 
-        logging.info(f"Fetched {len(data)} tracks.")
-        return data
-    except spotipy.exceptions.SpotifyException as e:
-        logging.error(f"Error fetching recently played tracks: {e}")
-        return []
-    except Exception as e:
-        logging.error(f"Unexpected error: {e}")
-        return []
+            logging.info(f"Fetched {len(data)} tracks.")
+            return data
+        except (spotipy.exceptions.SpotifyException, ConnectionError) as e:
+            logging.error(f"Error fetching recently played tracks: {e}")
+            attempt += 1
+            sleep_time = backoff_factor * (2 ** attempt)
+            logging.info(f"Retrying in {sleep_time} seconds...")
+            time.sleep(sleep_time)
+        except Exception as e:
+            logging.error(f"Unexpected error: {e}")
+            return []
+    return []
 
 def save_to_excel(data, filename="spotify_listening_history.xlsx"):
     try:
